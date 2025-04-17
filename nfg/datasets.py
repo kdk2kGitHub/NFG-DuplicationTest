@@ -7,6 +7,11 @@ import numpy as np
 
 EPS = 1e-8
 
+def check_column_format(df, required_columns):
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        raise ValueError(f"❌ Missing required columns in SEER file: {missing}")
+
 def load_dataset(dataset='SUPPORT', path = './', normalize = True, **kwargs):
     if dataset == 'GBSG':
         df = datasets.gbsg.read_df()
@@ -21,10 +26,13 @@ def load_dataset(dataset='SUPPORT', path = './', normalize = True, **kwargs):
         df = df.drop([c for c in df.columns if 'true' in c], axis = 'columns')
     elif dataset == 'SEER':
         df = pd.read_csv(path + 'data/export.csv')
+        #df = pd.read_csv(path + 'data/seer_cleaned_for_nfg.csv')  #cleaned based on chatgpt but try using this file processing
         df = process_seer(df)
         df['duration'] += EPS # Avoid problem of the minimum value 0
     elif dataset == 'SYNTHETIC_COMPETING':
-        df = pd.read_csv('https://raw.githubusercontent.com/chl8856/DeepHit/master/sample%20data/SYNTHETIC/synthetic_comprisk.csv')
+        #df = pd.read_csv('https://raw.githubusercontent.com/chl8856/DeepHit/master/sample%20data/SYNTHETIC/synthetic_comprisk.csv')
+        #df = pd.read_csv('https://github.com/chl8856/DeepHit/master/sample%20data/SYNTHETIC/synthetic_comprisk.csv')
+        df = pd.read_csv('https://raw.githubusercontent.com/chl8856/DeepHit/refs/heads/master/sample%20data/SYNTHETIC/synthetic_comprisk.csv')
         df = df.drop(columns = ['true_time', 'true_label']).rename(columns = {'label': 'event', 'time': 'duration'})
         df['duration'] += EPS # Avoid problem of the minimum value 0
     else:
@@ -38,7 +46,10 @@ def load_dataset(dataset='SUPPORT', path = './', normalize = True, **kwargs):
 
 def process_seer(df):
     # Remove multiple visits
-    df = df.groupby('Patient ID').first().drop(columns= ['Site recode ICD-O-3/WHO 2008'])
+    df = df.groupby('Patient ID').first()
+    # Safe drop: only drop if the column exists
+    if 'Site recode ICD-O-3/WHO 2008' in df.columns:
+        df = df.drop(columns=['Site recode ICD-O-3/WHO 2008'])
 
     # Encode using dictionary to remove missing data
     df["RX Summ--Surg Prim Site (1998+)"].replace('126', np.nan, inplace = True)
@@ -64,8 +75,9 @@ def process_seer(df):
         "Radiation recode", "ER Status Recode Breast Cancer (1990+)", "PR Status Recode Breast Cancer (1990+)",
         "Histologic Type ICD-O-3", "ICD-O-3 Hist/behav, malignant", "Sequence number", "RX Summ--Surg Prim Site (1998+)",
         "CS extension (2004-2015)", "CS lymph nodes (2004-2015)", "CS mets at dx (2004-2015)", "Origin recode NHIA (Hispanic, Non-Hisp)"]
-    ordinal_col = ["Age recode with <1 year olds", "Grade", "Year of diagnosis"]
-
+    #ordinal_col = ["Age recode with <1 year olds", "Grade", "Year of diagnosis"]
+    ordinal_col = ["Age recode with <1 year olds", "Grade Recode (thru 2017)", "Year of diagnosis"]
+    
     imputer = SimpleImputer(strategy='most_frequent')
     enc = OrdinalEncoder()
     df_cat = pd.DataFrame(enc.fit_transform(imputer.fit_transform(df[categorical_col])), columns = categorical_col, index = df.index)
@@ -73,13 +85,16 @@ def process_seer(df):
     df_ord = pd.DataFrame(imputer.fit_transform(df[ordinal_col]), columns = ordinal_col, index = df.index)
     df_ord = df_ord.replace(
       {age: number
-        for number, age in enumerate(['01-04 years', '05-09 years', '10-14 years', '15-19 years', '20-24 years', '25-29 years',
+        for number, age in enumerate(['00 years','01-04 years', '05-09 years', '10-14 years', '15-19 years', '20-24 years', '25-29 years',
         '30-34 years', '35-39 years', '40-44 years', '45-49 years', '50-54 years', '55-59 years', 
         '60-64 years', '65-69 years', '70-74 years', '75-79 years', '80-84 years', '85+ years'])
       }).replace({
         grade: number
         for number, grade in enumerate(['Well differentiated; Grade I', 'Moderately differentiated; Grade II',
-       'Poorly differentiated; Grade III', 'Undifferentiated; anaplastic; Grade IV'])
+       'Poorly differentiated; Grade III', 'Undifferentiated; anaplastic; Grade IV','T-cell',
+       'B-cell; pre-B; B-precursor','Null cell; non T-non B', 'NK cell; natural killer cell (1995+)',
+       'Unknown'
+       ])
       })
 
     ## Numerical

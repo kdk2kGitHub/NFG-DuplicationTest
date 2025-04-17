@@ -99,7 +99,10 @@ class NeuralFineGrayTorch(nn.Module):
 
     # Compute cumulative hazard function
     sr = []
-    tau_outcome = horizon.clone().detach().requires_grad_(True).unsqueeze(1)
+    #maybe problem per chatgpt updated on line after
+    #tau_outcome = horizon.clone().detach().requires_grad_(True).unsqueeze(1)
+    tau_outcome = horizon.clone().detach().to(x.device).requires_grad_(True).unsqueeze(1)
+
     for outcome_competing in self.outcome:
       outcome = tau_outcome * outcome_competing(torch.cat((x_rep, tau_outcome), 1))
       sr.append(- outcome)
@@ -116,6 +119,9 @@ class NeuralFineGrayTorch(nn.Module):
     log_beta = self.softlog(self.balance(x_rep)) # Balance
 
     # Compute cumulative hazard function
-    tau_outcome = horizon.clone().detach().requires_grad_(True).unsqueeze(1)
+    #update via chatgpt recommendation for gpu use
+    #tau_outcome = horizon.clone().detach().requires_grad_(True).unsqueeze(1)
+    tau_outcome = horizon.clone().detach().to(x.device).requires_grad_(True).unsqueeze(1)
+
     outcome = tau_outcome * self.outcome(torch.cat((x_rep, tau_outcome), 1))
     return -outcome, log_beta, tau_outcome

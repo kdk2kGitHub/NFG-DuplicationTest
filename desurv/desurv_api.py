@@ -12,8 +12,10 @@ class DeSurv(NeuralFineGray):
     model = DeSurvTorch(inputdim, **self.params,
                         risks = risks,
                         optimizer = optimizer).double()
-    if self.cuda > 0:
-      model = model.cuda()
+    #if self.cuda > 0:
+    #  model = model.cuda()
+    model = model.to(self.device)
+    
     return model
 
   def predict_survival(self, x, t, risk = None):

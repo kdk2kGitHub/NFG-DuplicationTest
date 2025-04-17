@@ -15,6 +15,8 @@ def get_optimizer(models, lr, optimizer, **kwargs):
 	else:
 		raise NotImplementedError('Optimizer '+optimizer+' is not implemented')
 
+'''
+#There original model not using cuda well so replace below with chatgpt version
 def train_nfg(model, total_loss,
 			  x_train, t_train, e_train,
 			  x_valid, t_valid, e_valid,
@@ -79,3 +81,61 @@ def train_nfg(model, total_loss,
 
 	model.load_state_dict(best_param)
 	return model, i
+'''
+
+#chatgpt version
+def train_nfg(model, total_loss,
+              x_train, t_train, e_train,
+              x_valid, t_valid, e_valid,
+              n_iter=1000, lr=1e-3, weight_decay=0.001,
+              bs=100, patience_max=3, device=torch.device("cpu")):
+    
+    # Optimizer
+    optimizer = get_optimizer(model, lr, model.optimizer, weight_decay=weight_decay)
+
+    # Initial tracking
+    patience, best_loss, previous_loss = 0, np.inf, np.inf
+    best_param = deepcopy(model.state_dict())
+
+    nbatches = int(x_train.shape[0] / bs) + 1
+    index = np.arange(len(x_train))
+
+    t_bar = tqdm(range(n_iter))
+    for i in t_bar:
+        np.random.shuffle(index)
+        model.train()
+
+        for j in range(nbatches):
+            xb = x_train[index[j*bs:(j+1)*bs]].to(device)
+            tb = t_train[index[j*bs:(j+1)*bs]].to(device)
+            eb = e_train[index[j*bs:(j+1)*bs]].to(device)
+
+            if xb.shape[0] == 0:
+                continue
+
+            optimizer.zero_grad()
+            loss = total_loss(model, xb, tb, eb)
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+
+        # Validation
+        xb, tb, eb = x_valid.to(device), t_valid.to(device), e_valid.to(device)
+        valid_loss = total_loss(model, xb, tb, eb).item()
+        t_bar.set_description("Loss: {:.3f}".format(valid_loss))
+
+        if valid_loss < previous_loss:
+            patience = 0
+            if valid_loss < best_loss:
+                best_loss = valid_loss
+                best_param = deepcopy(model.state_dict())
+        elif patience == patience_max:
+            break
+        else:
+            patience += 1
+
+        previous_loss = valid_loss
+
+    model.load_state_dict(best_param)
+    return model, i

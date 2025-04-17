@@ -13,7 +13,12 @@ class NeuralFineGray(DSMBase):
   def __init__(self, cuda = torch.cuda.is_available(), cause_specific = False, normalise = "None", **params):
     self.params = params
     self.fitted = False
-    self.cuda = cuda
+    
+    #update below per chatgpt
+    #self.cuda = cuda
+    self.device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
+    self.cuda = 1 if self.device.type == "cuda" else 0 
+    
     self.cause_specific = cause_specific
     self.normalise = normalise
     self.loss = total_loss_cs if cause_specific else total_loss
@@ -22,8 +27,11 @@ class NeuralFineGray(DSMBase):
     model = NeuralFineGrayTorch(inputdim, **self.params,
                                      risks = risks,
                                      optimizer = optimizer).double()
-    if self.cuda > 0:
-      model = model.cuda()
+    #update below per chatgpt
+    #if self.cuda > 0:
+    #  model = model.cuda()
+    model = model.to(self.device)
+    
     return model
   
   def _normalise(self, time, save = False):
@@ -37,7 +45,7 @@ class NeuralFineGray(DSMBase):
       time = time + 1 # Do not want event at time 0
       if save: 
         self.max_time = time.max()
-      return time / self.max_time # Normalise time between 0 and 1
+      return time / torch.as_tensor(self.max_time, dtype=time.dtype, device=time.device) # Normalise time between 0 and 1
     else:
       return time
 
@@ -48,15 +56,36 @@ class NeuralFineGray(DSMBase):
                                                    random_state)
     x_train, t_train, e_train, x_val, t_val, e_val = processed_data
 
+    x_train = x_train.clone().detach().double().to(self.device)
+    t_train = t_train.clone().detach().double().to(self.device)
+    e_train = e_train.clone().detach().long().to(self.device)
+
+    x_val = x_val.clone().detach().double().to(self.device)
+    t_val = t_val.clone().detach().double().to(self.device)
+    e_val = e_val.clone().detach().long().to(self.device)
+
+
     t_train = self._normalise(t_train, save = True)
     t_val = self._normalise(t_val)
 
-    maxrisk = int(np.nanmax(e_train.cpu().numpy()))
+    # to use gpu use torch -- per chatgpt
+    #maxrisk = int(np.nanmax(e_train.cpu().numpy()))
+    maxrisk = int(torch.max(e_train[~torch.isnan(e_train)]).item())
     model = self._gen_torch_model(x_train.size(1), optimizer, risks = maxrisk)
+    
+    #lines in their model.  I only have 1 cuda so this will cause issues.
+    #model, speed = train_nfg(model, self.loss,
+    #                    x_train, t_train, e_train,
+    #                     x_val, t_val, e_val, cuda = self.cuda == 2,
+    #                     **args)
+
+    #new version via chatgpt
     model, speed = train_nfg(model, self.loss,
                          x_train, t_train, e_train,
-                         x_val, t_val, e_val, cuda = self.cuda == 2,
+                         x_val, t_val, e_val,
+                         device=self.device,
                          **args)
+
 
     self.speed = speed # Number of iterations needed to converge
     self.torch_model = model.eval()
@@ -72,8 +101,15 @@ class NeuralFineGray(DSMBase):
     _, _, _, x_val, t_val, e_val = processed_data
     t_val = self._normalise(t_val)
 
-    if self.cuda == 2:
-      x_val, t_val, e_val = x_val.cuda(), t_val.cuda(), e_val.cuda()
+    # update below per chatgpt
+    #if self.cuda == 2:
+    #  x_val, t_val, e_val = x_val.cuda(), t_val.cuda(), e_val.cuda()
+    x_val = x_val.clone().detach().double().to(self.device)
+    t_val = t_val.clone().detach().double().to(self.device)
+    e_val = e_val.clone().detach().long().to(self.device)
+
+
+
 
     loss = self.loss(self.torch_model, x_val, t_val, e_val)
     return loss.item()
@@ -96,6 +132,7 @@ class NeuralFineGray(DSMBase):
                       "model using the `fit` method on some training data " +
                       "before calling `predict_survival`.")
 
+  '''  
   def feature_importance(self, x, t, e, n = 100):
     """
       This method computes the features' importance by a  random permutation of the input variables.
@@ -127,4 +164,29 @@ class NeuralFineGray(DSMBase):
         performances[j].append(self.compute_nll(x_permuted, t, e))
     return {j: np.mean((np.array(performances[j]) - global_nll)/abs(global_nll)) for j in performances}, \
            {j: 1.96 * np.std((np.array(performances[j]) - global_nll)/abs(global_nll)) / np.sqrt(n) for j in performances}
-          
+   '''
+   
+  # new torch optimized chatgpt version
+  def feature_importance(self, x, t, e, n=100):
+    x = torch.tensor(x).double().to(self.device)
+    t = torch.tensor(t).double().to(self.device)
+    e = torch.tensor(e).long().to(self.device)
+
+    global_nll = self.compute_nll(x, self._normalise(t), e)
+    permutation = torch.arange(len(x))
+    performances = {j: [] for j in range(x.shape[1])}
+
+    for _ in tqdm(range(n)):
+        permuted = permutation[torch.randperm(len(x))]  # GPU-safe
+        for j in performances:
+            x_permuted = x.clone()
+            x_permuted[:, j] = x[permuted, j]
+            performances[j].append(self.compute_nll(x_permuted, t, e))
+
+    # Return same format as before
+    return {
+        j: np.mean((np.array(performances[j]) - global_nll) / abs(global_nll)) for j in performances
+    }, {
+        j: 1.96 * np.std((np.array(performances[j]) - global_nll) / abs(global_nll)) / np.sqrt(n)
+        for j in performances
+    }

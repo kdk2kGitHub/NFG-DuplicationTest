@@ -17,14 +17,17 @@ class CondODENet(nn.Module):
         self.w_n = nn.Parameter(torch.tensor(w_n, dtype = torch.float32)[None, :], requires_grad = False)
 
     def forward(self, x, horizon):
-        tau = torch.matmul(horizon.unsqueeze(-1) / 2., 1 + self.u_n) # N x n (+ 1 to push integral in 0 2 and /2 to push in 0 - t)
+        u_n = self.u_n.to(x.device)
+        w_n = self.w_n.to(x.device)
+    
+        tau = torch.matmul(horizon.unsqueeze(-1) / 2., 1 + u_n) # N x n (+ 1 to push integral in 0 2 and /2 to push in 0 - t)
 
         tau_ = torch.flatten(tau).unsqueeze(-1) # Nn x 1. Think of as N n-dim vectors stacked on top of each other
         reppedx = torch.repeat_interleave(x, self.n, dim = 0)
         taux = torch.cat((tau_, reppedx), 1) # Nn x (d+1)
 
         f_n = self.f(taux).reshape((len(x), self.n, self.output_dim)) # N x n x d_out
-        pred = horizon.unsqueeze(-1) / 2. * ((self.w_n[:, :, None] * f_n).sum(dim = 1))
+        pred = horizon.unsqueeze(-1) / 2. * ((w_n[:, :, None] * f_n).sum(dim = 1))
 
         return torch.tanh(pred)
 
