@@ -27,12 +27,15 @@ x, t, e, covariates = datasets.load_dataset(dataset, competing = True)
 #grid_search = 100
 max_epochs = 200
 grid_search = 5
+
+small_layers = layers = [[25], [50], [25, 25], [50, 50]] #for DeSurv which is failing 4-6 times smaller?
+
 layers = [[i] * (j + 1) for i in [25, 50] for j in range(4)]
 layers_large = [[i] * (j + 1) for i in [25, 50] for j in range(8)]
 
 #batch = [100, 250] if dataset != 'SEER' else [1000, 5000]  #this crashed on SEER_ds DeSurv Expt
-batch = [100, 250] if dataset != 'SEER' else [200,1000] 
-
+#batch = [100, 250] if dataset != 'SEER' else [200,1000] #this crashed on SEER_ds after running 2 folds
+batch = [100, 250]
 # DSM
 param_grid = {
     'epochs': [max_epochs],
@@ -81,7 +84,8 @@ param_grid = {
 
     'embedding': [True],
     'layers_surv': layers,
-    'layers': layers,
+    #'layers': layers,
+    'layers': small_layers,  #Replaced for SEER
     'act': ['Tanh'],
 }
 DeSurvExperiment.create(param_grid, n_iter = grid_search, path = 'Results/{}_ds'.format(dataset), random_seed = random_seed, fold = fold,k=2).train(x, t, e)
@@ -92,9 +96,10 @@ param_grid = {
     'epochs': [max_epochs],
     'learning_rate' : [1e-3, 1e-4],
     'batch': batch,
-
-    'nodes' : layers,
-    'shared' : layers
+    
+    #from layers to small_layers for SEER
+    'nodes' : small_layers,
+    'shared' : small_layers
 }
 DeepHitExperiment.create(param_grid, n_iter = grid_search, path = 'Results/{}_dh'.format(dataset), random_seed = random_seed, fold = fold,k=2).train(x, t, e)
 DeepHitExperiment.create(param_grid, n_iter = grid_search, path = 'Results/{}_dhnc'.format(dataset), random_seed = random_seed, fold = fold,k=2).train(x, t, e == 1)
